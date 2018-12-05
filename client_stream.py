@@ -2,16 +2,35 @@ import socket
 import random
 import sys
 import time
+from socket import error as SocketError
+import errno
 
 SERVER_ADDRESS = '0.0.0.0'
-SERVER_PORT = 8888
+SERVER_CNTR_PORT = 8888
+SERVER_STRM_PORT = 9999
 
+#create UDP control socket
+cl_stream_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#send dummy UDP message to server
+message = b'dummy'
+cl_stream_sock.sendto(message,(SERVER_ADDRESS,SERVER_STRM_PORT))
 
+client_udp_port= cl_stream_sock.getsockname()[1]
 
-client_socket.connect((SERVER_ADDRESS, SERVER_PORT))
+print "client udp port:",client_udp_port
+
+#create TCP control socket
+cl_control_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+try:
+    cl_control_sock.connect((SERVER_ADDRESS, SERVER_CNTR_PORT))
+except socket.error as sock_err_msg:
+    print 'Control socket bind failed! Error code: ', sock_err_msg.args[0], "Message",sock_err_msg.args[1]
+    print "Exiting..."
+    sys.exit()
 '''
+#python3
 except Exception as e:
 
     print("Unable to connect to server")
@@ -19,26 +38,59 @@ except Exception as e:
     sys.exit(-1)
 '''
 
+time.sleep(0.5)
+
+try:
+    cl_control_sock.send(str(client_udp_port).encode())
+
+except SocketError as e:
+
+    if e.errno != errno.EPIPE:
+        print
+        "ERROR: unexpected error while communicating with the server"
+        print
+        "Exception name:", type(e).__name__, " ", e.args
+        raise  # Not error we are looking for
+    print
+    "ERROR:Connection closed by the server, exit"
+    print
+    "Exception name:", type(e).__name__, " ", e.args
+
+    sys.exit()
+
+
 while 1:
 
     try:
-        data = client_socket.recv(1024)
-        print("Received data from server: ",data.decode("UTF-8"))
+        data = cl_control_sock.recv(1024)
+        print "Received data from server: ",data.decode("UTF-8")
         rand_num=(random.randint(0, 10))
-        print( "generated number %d" %(rand_num))
+        print "generated number %d" %(rand_num)
 
         #se non riceve nulla ci pensiamo dopo
 
 
-        client_socket.send(str(rand_num).encode()) #FORSE DA ERRORE
-        #client_socket.send(b'diocan')
+        cl_control_sock.send(str(rand_num).encode()) #FORSE DA ERRORE
+
         time.sleep(1)
 
+    except SocketError as e:
+
+        if e.errno != errno.EPIPE:
+            print "ERROR: unexpected error while communicating with the server"
+            print "Exception name:", type(e).__name__, " ", e.args
+            raise  # Not error we are looking for
+        print "ERROR:Connection closed by the server, exit"
+        print "Exception name:", type(e).__name__, " ", e.args
+
+        break
+
+    """
     except BrokenPipeError as e:
         print("Connection closed by the server, exit")
         print("Exception name:", type(e).__name__, " ", e.args)
         break
-
+    """
 
 
     '''
