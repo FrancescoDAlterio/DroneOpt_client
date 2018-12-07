@@ -4,13 +4,42 @@ import sys
 import time
 from socket import error as SocketError
 import errno
+import threading
 
 SERVER_ADDRESS = '0.0.0.0'
 SERVER_CNTR_PORT = 8888
 SERVER_STRM_PORT = 9999
 
+
+def rcv_udp_thread(udp_sock):
+
+    finished = False
+
+    while not finished:
+        time.sleep(1)
+        try:
+            data, srvr = udp_sock.recvfrom(4096)
+        except Exception as e:
+            print "UDP: end of streaming",e
+            udp_sock.close()
+            break
+        print "received %s from %s " %(data,srvr,)
+
+
+
+
+
+
+
+
+
+
+
+
+
 #create UDP control socket
 cl_stream_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+#cl_stream_sock.settimeout(1)
 
 #send dummy UDP message to server
 message = b'dummy'
@@ -38,6 +67,19 @@ except Exception as e:
     sys.exit(-1)
 '''
 
+#initialize the thread to receive the udp streaming before sending the UDP port
+
+try:
+    proc_thread = threading.Thread(target=rcv_udp_thread, args=(cl_stream_sock,))
+    proc_thread.start()
+    # signal.pause()
+    # start_new_thread(clientthread, (conn,addr,))
+except (KeyboardInterrupt, SystemExit):
+    print
+    '\n! Received keyboard interrupt, quitting threads.\n'
+
+
+
 time.sleep(0.5)
 
 try:
@@ -59,16 +101,15 @@ except SocketError as e:
     sys.exit()
 
 
+
 while 1:
+
 
     try:
         data = cl_control_sock.recv(1024)
         print "Received data from server: ",data.decode("UTF-8")
         rand_num=(random.randint(0, 10))
         print "generated number %d" %(rand_num)
-
-        #se non riceve nulla ci pensiamo dopo
-
 
         cl_control_sock.send(str(rand_num).encode()) #FORSE DA ERRORE
 
