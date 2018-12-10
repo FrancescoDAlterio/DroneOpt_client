@@ -5,12 +5,28 @@ import time
 from socket import error as SocketError
 import errno
 import threading
+import os
+import subprocess
+import ClientUtilities
+
+#global constants
 
 SERVER_ADDRESS = '0.0.0.0'
 SERVER_CNTR_PORT = 8888
-SERVER_STRM_PORT = 9999
 
+CLIENT_IPERF_PORT = 5210 #actually it runs iperf server
 
+#global variables
+
+pipe_name = 'pipe_iperf'
+udp_stream_active = True
+
+transfer = -1
+bandwidth=-1
+jitter = -1
+lost_perc= -1
+
+'''
 def rcv_udp_thread(udp_sock):
 
     finished = False
@@ -25,29 +41,55 @@ def rcv_udp_thread(udp_sock):
             break
         print "received %s from %s " %(data,srvr,)
 
+'''
+
+##### END DECLARATION PART #####
+
+def UDPiperfthread(iperf_port):
+
+    #in theory this thread should never terminate
+    print "UDPiperfthread:  launching UDP test with iperf3 server"
+
+    global udp_stream_active
+
+    pipeout = os.open(pipe_name, os.O_WRONLY)
+    process_to_open = 'stdbuf -oL iperf3 -s -V' #default port 5201
+
+    udp_stream_active = True #add some delay after checking this variable
+    p = subprocess.Popen(process_to_open, shell=True, stdout=pipeout)
+    p.wait()
+    #udp_stream_active = False
+    #print "iperf3 SERVER HAS CRASHED"
+    while True:
+        time.sleep(1)
+
+def computemetricsthread():
+
+    print "computemetricsthread: generating metrics..."
+    pipein = open(pipe_name, 'r')
+    global transfer
+    global bandwidth
+    global jitter
+    global lost_perc
+
+    while udp_stream_active:
+
+        line = pipein.readline()[:-1]
+        tokenize = line.split()
+
+        #real metrics
+        if len(tokenize)>3 and tokenize[3] == 'sec':
+
+            transfer = ClientUtilities.toKilo(tokenize[5],tokenize[4])
+            bandwidth = ClientUtilities.toKilo(tokenize[7],tokenize[6])
+            jitter = ClientUtilities.str_to_float(tokenize[8])[1]
+            lost_perc = ClientUtilities.str_to_float(tokenize[11].translate(None, '()%'))[1]
+
+            print "transfer:",transfer," bandwidth:",bandwidth," jitter:",jitter,"lost_perc:",lost_perc
 
 
+    print "Finished computing metrics"
 
-
-
-
-
-
-
-
-
-
-#create UDP control socket
-cl_stream_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-#cl_stream_sock.settimeout(1)
-
-#send dummy UDP message to server
-message = b'dummy'
-cl_stream_sock.sendto(message,(SERVER_ADDRESS,SERVER_STRM_PORT))
-
-client_udp_port= cl_stream_sock.getsockname()[1]
-
-print "client udp port:",client_udp_port
 
 #create TCP control socket
 cl_control_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -66,24 +108,21 @@ except Exception as e:
     print("Exception name:",type(e).__name__,",Error code:", e.args[0], ", Message: ", e.args[1])
     sys.exit(-1)
 '''
-
-#initialize the thread to receive the udp streaming before sending the UDP port
-
-try:
-    proc_thread = threading.Thread(target=rcv_udp_thread, args=(cl_stream_sock,))
-    proc_thread.start()
-    # signal.pause()
-    # start_new_thread(clientthread, (conn,addr,))
-except (KeyboardInterrupt, SystemExit):
-    print
-    '\n! Received keyboard interrupt, quitting threads.\n'
+#initialize the pipe between UDPiperfthread and computemetricsthread
+if not os.path.exists(pipe_name):
+    os.mkfifo(pipe_name)
 
 
 
-time.sleep(0.5)
+#initialize the thread to receive the udp streaming (start iperf server)
+iperf_thread = threading.Thread(target = UDPiperfthread, args=(CLIENT_IPERF_PORT,))
+iperf_thread.start()
+
+metrics_thread = threading.Thread(target = computemetricsthread)
+metrics_thread.start()
 
 try:
-    cl_control_sock.send(str(client_udp_port).encode())
+    cl_control_sock.send('ready'.encode())
 
 except SocketError as e:
 
@@ -99,7 +138,6 @@ except SocketError as e:
     "Exception name:", type(e).__name__, " ", e.args
 
     sys.exit()
-
 
 
 while 1:
